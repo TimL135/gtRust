@@ -7,6 +7,7 @@ mod explosion;
 mod floating_text;
 mod help_fn;
 mod player;
+mod savegame;
 mod star;
 
 use bullet::Bullet;
@@ -14,7 +15,157 @@ use debris::Debris;
 use explosion::Explosion;
 use floating_text::FloatingText;
 use player::Player;
+use savegame::{load_save, save_game};
 use star::Star;
+
+fn update_entities(
+    player: &mut Player,
+    bullets: &mut Vec<Bullet>,
+    debris: &mut Vec<Debris>,
+    floating_texts: &mut Vec<FloatingText>,
+    explosions: &mut Vec<Explosion>,
+    stars: &mut Vec<Star>,
+    score: &mut i32,
+    spawn_timer: &mut f32,
+    difficulty_timer: &mut f32,
+    spawn_rate: &mut f32,
+) -> bool {
+    // Sterne updaten
+    for s in stars.iter_mut() {
+        s.update();
+    }
+    // Spieler updaten
+    player.update(bullets);
+
+    // Schwierigkeit erhöhen über Zeit
+    *difficulty_timer += get_frame_time();
+    if *difficulty_timer > 10.0 {
+        // Alle 10 Sekunden schwieriger
+        *spawn_rate = (*spawn_rate * 0.9).max(0.2f32); // Mindestens alle 0.2 Sekunden
+        *difficulty_timer = 0.0;
+    }
+
+    // Neuen Schrott spawnen
+    *spawn_timer += get_frame_time();
+    if *spawn_timer > *spawn_rate {
+        debris.push(Debris::new());
+        *spawn_timer = 0.0;
+    }
+
+    // Schrott updaten
+    debris.retain_mut(|d| !d.update(explosions, floating_texts, score));
+
+    debris.retain(|d| {
+        if d.collides_with(player) {
+            player.take_damage(d.damage);
+            false // Element entfernen
+        } else {
+            true // Element behalten
+        }
+    });
+
+    if player.is_destroyed() {
+        return true; // Game over
+    }
+
+    // Bullets updaten
+    for b in bullets.iter_mut() {
+        b.update();
+    }
+
+    // Update der floating texts
+    for ft in floating_texts.iter_mut() {
+        ft.update();
+    }
+    floating_texts.retain(|ft| !ft.is_dead());
+
+    // Bullet <-> Debris Kollision
+    Bullet::handle_collisions(bullets, debris);
+
+    // Update-Loop für Explosionen
+    for explosion in explosions.iter_mut() {
+        explosion.update();
+    }
+    // Entferne fertig animierte Explosionen
+    explosions.retain(|e| !e.is_finished());
+
+    // Offscreen-Bullets entfernen
+    bullets.retain(|b| !b.is_off_screen());
+
+    // Schrott außerhalb des Bildschirms entfernen und Score erhöhen
+    debris.retain(|d| {
+        if d.is_off_screen() {
+            *score += 10;
+            false
+        } else {
+            true
+        }
+    });
+
+    false // Kein Game over
+}
+
+fn draw_entities(
+    player: &Player,
+    bullets: &Vec<Bullet>,
+    debris: &Vec<Debris>,
+    floating_texts: &Vec<FloatingText>,
+    explosions: &Vec<Explosion>,
+    stars: &Vec<Star>,
+    score: i32,
+    spawn_rate: f32,
+) {
+    // Sterne zeichnen
+    for (i, s) in stars.iter().enumerate() {
+        s.draw(i);
+    }
+
+    // Entitäten zeichnen
+    player.draw();
+    for b in bullets {
+        b.draw();
+    }
+    for d in debris {
+        d.draw();
+    }
+    for ft in floating_texts.iter() {
+        ft.draw();
+    }
+    for explosion in explosions {
+        explosion.draw();
+    }
+
+    // UI skaliert mit Bildschirmgröße
+    let font_size = screen_height() * 0.04; // 4% der Bildschirmhöhe
+    let small_font = screen_height() * 0.025; // 2.5% der Bildschirmhöhe
+
+    // Score anzeigen
+    draw_text(
+        &format!("Score: {}", score),
+        screen_width() * 0.02,
+        screen_height() * 0.06,
+        font_size,
+        WHITE,
+    );
+
+    // Spawn-Rate anzeigen
+    draw_text(
+        &format!("Spawn Rate: {:.1}s", spawn_rate),
+        screen_width() * 0.02,
+        screen_height() * 0.12,
+        small_font,
+        GRAY,
+    );
+
+    // Steuerung
+    draw_text(
+        "WASD oder Pfeiltasten zum Bewegen | ESC = Beenden",
+        screen_width() * 0.02,
+        screen_height() - screen_height() * 0.03,
+        small_font,
+        GRAY,
+    );
+}
 
 fn window_conf() -> Conf {
     Conf {
@@ -35,6 +186,8 @@ async fn main() {
     let mut player = Player::new();
     let mut debris: Vec<Debris> = Vec::new();
     let mut score = 0;
+    let mut save = load_save();
+    let mut highscore = save.highscore;
     let mut game_over = false;
     let mut spawn_timer = 0.0;
     let mut difficulty_timer = 0.0;
@@ -61,131 +214,40 @@ async fn main() {
             game_over = true;
         }
 
-        for s in stars.iter_mut() {
-            s.update();
-        }
-        for (i, s) in stars.iter().enumerate() {
-            s.draw(i);
-        }
         if !game_over {
-            // Spieler updaten
-            player.update(&mut bullets);
-
-            // Schwierigkeit erhöhen über Zeit
-            difficulty_timer += get_frame_time();
-            if difficulty_timer > 10.0 {
-                // Alle 10 Sekunden schwieriger
-                spawn_rate = (spawn_rate * 0.9).max(0.2f32); // Mindestens alle 0.2 Sekunden
-                difficulty_timer = 0.0;
-            }
-
-            // Neuen Schrott spawnen
-            spawn_timer += get_frame_time();
-            if spawn_timer > spawn_rate {
-                debris.push(Debris::new());
-                spawn_timer = 0.0;
-            }
-
-            // Schrott updaten
-            debris.retain_mut(|d| !d.update(&mut explosions, &mut floating_texts, &mut score));
-
-            debris.retain(|d| {
-                if d.collides_with(&player) {
-                    player.take_damage(d.damage);
-                    false // Element entfernen
-                } else {
-                    true // Element behalten
-                }
-            });
-
-            if player.is_destroyed() {
-                game_over = true;
-            }
-
-            // Bullets updaten
-            for b in &mut bullets {
-                b.update();
-            }
-
-            // Update und Draw der floating texts
-            for ft in floating_texts.iter_mut() {
-                ft.update();
-            }
-            floating_texts.retain(|ft| !ft.is_dead());
-
-            // Bullet <-> Debris Kollision
-            Bullet::handle_collisions(&mut bullets, &mut debris);
-
-            // Update-Loop
-            for explosion in explosions.iter_mut() {
-                explosion.update();
-            }
-            // Entferne fertig animierte Explosionen
-            explosions.retain(|e| !e.is_finished());
-
-            // Draw-Loop
-            for explosion in &explosions {
-                explosion.draw();
-            }
-
-            // Offscreen-Bullets entfernen
-            bullets.retain(|b| !b.is_off_screen());
-
-            // Schrott außerhalb des Bildschirms entfernen und Score erhöhen
-            debris.retain(|d| {
-                if d.is_off_screen() {
-                    score += 10;
-                    false
-                } else {
-                    true
-                }
-            });
+            // Alle Entitäten updaten
+            game_over = update_entities(
+                &mut player,
+                &mut bullets,
+                &mut debris,
+                &mut floating_texts,
+                &mut explosions,
+                &mut stars,
+                &mut score,
+                &mut spawn_timer,
+                &mut difficulty_timer,
+                &mut spawn_rate,
+            );
         }
 
         if !game_over {
-            player.draw();
-            for b in &bullets {
-                b.draw();
-            }
-            for d in &debris {
-                d.draw();
-            }
-
-            for ft in floating_texts.iter() {
-                ft.draw();
-            }
-
-            // UI skaliert mit Bildschirmgröße
-            let font_size = screen_height() * 0.04; // 4% der Bildschirmhöhe
-            let small_font = screen_height() * 0.025; // 2.5% der Bildschirmhöhe
-
-            // Score anzeigen
-            draw_text(
-                &format!("Score: {}", score),
-                screen_width() * 0.02,
-                screen_height() * 0.06,
-                font_size,
-                WHITE,
-            );
-
-            // Spawn-Rate anzeigen
-            draw_text(
-                &format!("Spawn Rate: {:.1}s", spawn_rate),
-                screen_width() * 0.02,
-                screen_height() * 0.12,
-                small_font,
-                GRAY,
-            );
-
-            // Steuerung
-            draw_text(
-                "WASD oder Pfeiltasten zum Bewegen | ESC = Beenden",
-                screen_width() * 0.02,
-                screen_height() - screen_height() * 0.03,
-                small_font,
-                GRAY,
+            // Alle Entitäten zeichnen
+            draw_entities(
+                &player,
+                &bullets,
+                &debris,
+                &floating_texts,
+                &explosions,
+                &stars,
+                score,
+                spawn_rate,
             );
         } else {
+            if score > highscore {
+                highscore = score;
+                save.highscore = highscore;
+                save_game(&save);
+            }
             // Game Over Screen
             let title_font = screen_height() * 0.08;
             let text_font = screen_height() * 0.04;
@@ -199,6 +261,16 @@ async fn main() {
                 screen_height() / 2.0 - screen_height() * 0.1,
                 title_font,
                 RED,
+            );
+
+            let highscore_text = &format!("Highscore: {}", highscore);
+            let hs_size = measure_text(highscore_text, None, text_font as u16, 1.0);
+            draw_text(
+                highscore_text,
+                screen_width() / 2.0 - hs_size.width / 2.0,
+                screen_height() / 2.0 + screen_height() * 0.15,
+                text_font,
+                YELLOW,
             );
 
             let score_text = &format!("Final Score: {}", score);
