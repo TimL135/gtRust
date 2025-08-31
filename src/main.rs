@@ -1,3 +1,4 @@
+use macroquad::audio::{PlaySoundParams, load_sound};
 use macroquad::prelude::*;
 use std::vec::Vec;
 
@@ -6,6 +7,7 @@ mod debris;
 mod explosion;
 mod floating_text;
 mod help_fn;
+mod music_manager;
 mod player;
 mod savegame;
 mod star;
@@ -14,6 +16,7 @@ use bullet::Bullet;
 use debris::Debris;
 use explosion::Explosion;
 use floating_text::FloatingText;
+use music_manager::MusicManager;
 use player::Player;
 use savegame::{load_save, save_game};
 use star::Star;
@@ -180,6 +183,13 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    let mut music_manager = MusicManager::new();
+    let menu_music = load_sound("assets/music/menu_track.ogg").await.unwrap();
+    let gameplay_music = load_sound("assets/music/gameplay_track.ogg").await.unwrap();
+    //let combat_music = load_sound("assets/music/combat_track.ogg").await.unwrap();
+    music_manager.add_track("menu", menu_music);
+    music_manager.add_track("game", gameplay_music);
+
     let mut last_width = screen_width();
     let mut last_height = screen_height();
 
@@ -197,6 +207,14 @@ async fn main() {
     let mut explosions: Vec<Explosion> = Vec::new();
 
     let mut stars: Vec<Star> = (0..100).map(|_| Star::new()).collect();
+
+    music_manager.play(
+        "game",
+        PlaySoundParams {
+            looped: true,
+            volume: 0.7,
+        },
+    );
 
     loop {
         let current_width = screen_width();
@@ -243,6 +261,16 @@ async fn main() {
                 spawn_rate,
             );
         } else {
+            if music_manager.current_track() != Some(&"menu".to_string()) {
+                music_manager.play(
+                    "menu",
+                    PlaySoundParams {
+                        looped: true,
+                        volume: 0.7,
+                    },
+                );
+            }
+
             if score > highscore {
                 highscore = score;
                 save.highscore = highscore;
@@ -295,6 +323,13 @@ async fn main() {
 
             // Neustart
             if is_key_pressed(KeyCode::R) {
+                music_manager.play(
+                    "game",
+                    PlaySoundParams {
+                        looped: true,
+                        volume: 0.7,
+                    },
+                );
                 player = Player::new();
                 debris.clear();
                 bullets.clear();
