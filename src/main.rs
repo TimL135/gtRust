@@ -1,4 +1,4 @@
-use macroquad::audio::{PlaySoundParams, load_sound};
+use macroquad::audio::load_sound;
 use macroquad::prelude::*;
 use std::vec::Vec;
 
@@ -10,6 +10,7 @@ mod help_fn;
 mod music_manager;
 mod player;
 mod savegame;
+mod settings;
 mod star;
 
 use bullet::Bullet;
@@ -18,7 +19,8 @@ use explosion::Explosion;
 use floating_text::FloatingText;
 use music_manager::MusicManager;
 use player::Player;
-use savegame::{load_save, save_game};
+use savegame::{load_save, update_highscore};
+use settings::SettingsUI;
 use star::Star;
 
 fn update_entities(
@@ -206,15 +208,10 @@ async fn main() {
     let mut floating_texts: Vec<FloatingText> = Vec::new();
     let mut explosions: Vec<Explosion> = Vec::new();
 
+    let mut settings_ui = SettingsUI::new();
     let mut stars: Vec<Star> = (0..100).map(|_| Star::new()).collect();
 
-    music_manager.play(
-        "game",
-        PlaySoundParams {
-            looped: true,
-            volume: 0.7,
-        },
-    );
+    music_manager.play("game");
 
     loop {
         let current_width = screen_width();
@@ -262,19 +259,13 @@ async fn main() {
             );
         } else {
             if music_manager.current_track() != Some(&"menu".to_string()) {
-                music_manager.play(
-                    "menu",
-                    PlaySoundParams {
-                        looped: true,
-                        volume: 0.7,
-                    },
-                );
+                music_manager.play("menu");
             }
 
             if score > highscore {
                 highscore = score;
                 save.highscore = highscore;
-                save_game(&save);
+                update_highscore(highscore);
             }
             // Game Over Screen
             let title_font = screen_height() * 0.08;
@@ -321,15 +312,15 @@ async fn main() {
                 GRAY,
             );
 
+            settings_ui.update_and_draw();
+            if settings_ui.have_volume_changes {
+                music_manager.refresh_settings();
+                settings_ui.have_volume_changes = false;
+            }
+
             // Neustart
             if is_key_pressed(KeyCode::R) {
-                music_manager.play(
-                    "game",
-                    PlaySoundParams {
-                        looped: true,
-                        volume: 0.7,
-                    },
-                );
+                music_manager.play("game");
                 player = Player::new();
                 debris.clear();
                 bullets.clear();

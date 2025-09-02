@@ -1,18 +1,28 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SaveData {
     pub highscore: i32,
-    // weitere Felder kannst du später leicht ergänzen, z.B.:
-    // pub unlocked_ships: Vec<String>,
-    // pub sound_volume: f32,
-    // pub settings: GameSettings,
+    pub settings: GameSettings,
+    // weitere Felder kannst du später leicht ergänzen
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GameSettings {
+    pub music_volume: f32,
+    pub sound_volume: f32,
 }
 
 impl Default for SaveData {
     fn default() -> Self {
-        SaveData { highscore: 0 }
+        SaveData {
+            highscore: 0,
+            settings: GameSettings {
+                music_volume: 0.7,
+                sound_volume: 0.8,
+            },
+        }
     }
 }
 
@@ -25,7 +35,23 @@ pub fn load_save() -> SaveData {
 }
 
 pub fn save_game(data: &SaveData) {
-    if let Ok(json) = serde_json::to_string(data) {
+    if let Ok(json) = serde_json::to_string_pretty(data) {
         let _ = fs::write("savegame.json", json);
     }
+}
+
+// ---- Update Funktionen ----
+
+// Highscore setzen
+pub fn update_highscore(new_score: i32) {
+    let mut data = load_save();
+    data.highscore = new_score;
+    save_game(&data);
+}
+
+// Settings komplett updaten
+pub fn update_settings(new_settings: GameSettings) {
+    let mut data = load_save();
+    data.settings = new_settings;
+    save_game(&data);
 }
