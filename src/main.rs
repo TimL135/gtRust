@@ -7,6 +7,7 @@ mod explosion;
 mod floating_text;
 mod fps;
 mod help_fn;
+mod items;
 mod music_manager;
 mod player;
 mod savegame;
@@ -18,6 +19,7 @@ use debris::Debris;
 use explosion::Explosion;
 use floating_text::FloatingText;
 use fps::FpsCounter;
+use items::ItemManager;
 use music_manager::MusicManager;
 use player::Player;
 use savegame::{load_save, update_highscore};
@@ -36,6 +38,7 @@ fn update_entities(
     difficulty_timer: &mut f32,
     spawn_rate: &mut f32,
     fps_counter: &mut FpsCounter,
+    item_manager: &mut ItemManager,
 ) -> bool {
     // Sterne updaten
     for s in stars.iter_mut() {
@@ -109,6 +112,7 @@ fn update_entities(
         }
     });
     fps_counter.update();
+    item_manager.update(get_frame_time());
 
     false // Kein Game over
 }
@@ -123,6 +127,7 @@ fn draw_entities(
     score: i32,
     spawn_rate: f32,
     fps_counter: &FpsCounter,
+    item_manager: &ItemManager,
 ) {
     // Sterne zeichnen
     for (i, s) in stars.iter().enumerate() {
@@ -175,6 +180,7 @@ fn draw_entities(
         GRAY,
     );
     fps_counter.draw();
+    item_manager.draw();
 }
 
 fn window_conf() -> Conf {
@@ -211,6 +217,7 @@ async fn main() {
     let mut settings_ui = SettingsUI::new();
     let mut fps_counter = FpsCounter::new();
     let mut stars: Vec<Star> = (0..100).map(|_| Star::new()).collect();
+    let mut item_manager = ItemManager::new();
 
     music_manager.play("gameplay");
 
@@ -244,6 +251,7 @@ async fn main() {
                 &mut difficulty_timer,
                 &mut spawn_rate,
                 &mut fps_counter,
+                &mut item_manager,
             );
         }
 
@@ -259,6 +267,7 @@ async fn main() {
                 score,
                 spawn_rate,
                 &fps_counter,
+                &item_manager,
             );
         } else {
             if music_manager.current_track() != Some(&"menu".to_string()) {
