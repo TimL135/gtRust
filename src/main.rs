@@ -1,4 +1,3 @@
-use macroquad::audio::load_sound;
 use macroquad::prelude::*;
 use std::vec::Vec;
 
@@ -185,12 +184,7 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut music_manager = MusicManager::new();
-    let menu_music = load_sound("assets/music/menu_track.ogg").await.unwrap();
-    let gameplay_music = load_sound("assets/music/gameplay_track.ogg").await.unwrap();
-    //let combat_music = load_sound("assets/music/combat_track.ogg").await.unwrap();
-    music_manager.add_track("menu", menu_music);
-    music_manager.add_track("game", gameplay_music);
+    let mut music_manager = MusicManager::new().await;
 
     let mut last_width = screen_width();
     let mut last_height = screen_height();
@@ -211,7 +205,7 @@ async fn main() {
     let mut settings_ui = SettingsUI::new();
     let mut stars: Vec<Star> = (0..100).map(|_| Star::new()).collect();
 
-    music_manager.play("game");
+    music_manager.play("gameplay");
 
     loop {
         let current_width = screen_width();
@@ -320,7 +314,7 @@ async fn main() {
 
             // Neustart
             if is_key_pressed(KeyCode::R) {
-                music_manager.play("game");
+                music_manager.play("gameplay");
                 player = Player::new();
                 debris.clear();
                 bullets.clear();

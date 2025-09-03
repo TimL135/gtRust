@@ -9,25 +9,23 @@ pub struct MusicManager {
 }
 
 impl MusicManager {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         let save_data = load_save();
+        let menu_music = load_sound("assets/music/menu_track.ogg").await.unwrap();
+        let gameplay_music = load_sound("assets/music/gameplay_track.ogg").await.unwrap();
+
         Self {
             current_music: None,
-            tracks: HashMap::new(),
+            tracks: HashMap::from([
+                ("menu".to_string(), menu_music),
+                ("gameplay".to_string(), gameplay_music),
+            ]),
             music_volume: save_data.settings.music_volume,
         }
     }
 
-    // Track laden und registrieren
-    pub fn add_track(&mut self, name: &str, sound: Sound) {
-        self.tracks.insert(name.to_string(), sound);
-    }
-
     // Spielt einen Track ab - stoppt automatisch den vorherigen
     pub fn play(&mut self, name: &str) {
-        // Settings neu laden für aktuelle Lautstärke
-        self.refresh_settings();
-
         // Aktuellen Track stoppen
         if let Some(current_name) = &self.current_music {
             if let Some(current_sound) = self.tracks.get(current_name) {
