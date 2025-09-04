@@ -288,7 +288,7 @@ fn draw_entities(
 
     // Steuerung
     draw_text(
-        "WASD oder Pfeiltasten zum Bewegen | SPACE = Schießen | ESC = Beenden",
+        "WASD or arrow keys to move | SPACE = Shoot | ESC = Quit",
         screen_width() * 0.02,
         screen_height() - screen_height() * 0.03,
         small_font,
@@ -428,7 +428,7 @@ async fn main() {
                 WHITE,
             );
 
-            let restart_text = "Drücke R zum Neustarten | ESC zum Beenden";
+            let restart_text = "Press R to Restart | ESC to Quit";
             let restart_size = measure_text(restart_text, None, small_font as u16, 1.0);
             draw_text(
                 restart_text,
