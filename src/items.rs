@@ -1,3 +1,5 @@
+use crate::floating_text::FloatingText;
+use crate::player::Player;
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
@@ -11,7 +13,7 @@ pub enum ItemType {
     TimeFreeze,   // Gegner frieren für kurze Zeit ein
     DoublePoints, // Doppelte Punkte für eine Weile
     Overdrive,    // Mehr Punkte, aber größere Hitbox
-    BlackHole,    // Saugt Gegner in der Nähe weg
+                  // BlackHole,    // Saugt Gegner in der Nähe weg
 }
 
 #[derive(Debug, Clone)]
@@ -24,6 +26,8 @@ pub struct Item {
     pub size: f32,
     pub rotation: f32,
     pub pulse_phase: f32,
+    pub attracted_to_player: bool,
+    pub attraction_speed: f32,
 }
 
 pub struct ItemManager {
@@ -46,17 +50,17 @@ impl ItemManager {
         item_colors.insert(ItemType::TimeFreeze, Color::new(1.0, 1.0, 1.0, 1.0)); // Weiß
         item_colors.insert(ItemType::DoublePoints, Color::new(0.0, 1.0, 0.0, 1.0)); // Grün
         item_colors.insert(ItemType::Overdrive, Color::new(1.0, 0.0, 0.0, 1.0)); // Rot
-        item_colors.insert(ItemType::BlackHole, Color::new(0.3, 0.0, 0.3, 1.0)); // Dunkellila
+        // item_colors.insert(ItemType::BlackHole, Color::new(0.3, 0.0, 0.3, 1.0)); // Dunkellila
 
         Self {
             items: Vec::new(),
             spawn_timer: 0.0,
-            spawn_interval: 3.0, // Alle 3 Sekunden ein neues Item
+            spawn_interval: 5.0, // Alle 5 Sekunden ein neues Item
             item_colors,
         }
     }
 
-    pub fn update(&mut self, dt: f32) {
+    pub fn update(&mut self, dt: f32, player: &Player) {
         // Spawn-Timer aktualisieren
         self.spawn_timer += dt;
         if self.spawn_timer >= self.spawn_interval {
@@ -68,12 +72,72 @@ impl ItemManager {
         for item in &mut self.items {
             item.rotation += dt * 2.0; // Langsame Rotation
             item.pulse_phase += dt * 4.0; // Pulsieren für Animation
+
+            // Magnet-Effekt: Items werden zum Spieler gezogen
+            if player.magnet_range > 0.0 {
+                let distance_to_player = (item.position - player.get_position()).length();
+                if distance_to_player <= player.magnet_range {
+                    item.attracted_to_player = true;
+                    item.attraction_speed = 200.0; // Pixel pro Sekunde
+                }
+            }
+
+            // Item zum Spieler bewegen wenn angezogen
+            if item.attracted_to_player {
+                let direction = (player.get_position() - item.position).normalize();
+                item.position += direction * item.attraction_speed * dt;
+            }
         }
 
         // Abgelaufene Items entfernen
         let current_time = get_time() as f32;
         self.items
             .retain(|item| current_time - item.spawn_time < item.lifetime);
+    }
+
+    pub fn check_pickups(
+        &mut self,
+        player: &mut Player,
+        floating_texts: &mut Vec<FloatingText>,
+    ) -> Vec<ItemType> {
+        let mut picked_up_items = Vec::new();
+        let player_pos = player.get_position();
+        let pickup_radius = player.get_pickup_radius();
+
+        self.items.retain(|item| {
+            let distance = (item.position - player_pos).length();
+            if distance <= pickup_radius + item.size {
+                // Item aufgesammelt!
+                player.apply_item_effect(item.item_type.clone());
+                picked_up_items.push(item.item_type.clone());
+
+                // Floating Text für Pickup
+                let text = match item.item_type {
+                    ItemType::Shield => "SHIELD!",
+                    ItemType::SpeedBoost => "SPEED!",
+                    ItemType::SlowMotion => "SLOW-MO!",
+                    ItemType::Magnet => "MAGNET!",
+                    ItemType::PhaseShift => "PHASE!",
+                    ItemType::TimeFreeze => "FREEZE!",
+                    ItemType::DoublePoints => "2X POINTS!",
+                    ItemType::Overdrive => "OVERDRIVE!",
+                    // ItemType::BlackHole => "BLACK HOLE!",
+                };
+
+                floating_texts.push(FloatingText::new_with_text(
+                    item.position.x,
+                    item.position.y,
+                    text.to_string(),
+                    Color::new(1.0, 1.0, 0.0, 1.0),
+                ));
+
+                false // Item entfernen
+            } else {
+                true // Item behalten
+            }
+        });
+
+        picked_up_items
     }
 
     fn spawn_random_item(&mut self) {
@@ -86,7 +150,7 @@ impl ItemManager {
             ItemType::TimeFreeze,
             ItemType::DoublePoints,
             ItemType::Overdrive,
-            ItemType::BlackHole,
+            // ItemType::BlackHole,
         ];
 
         let random_type = item_types[rand::gen_range(0, item_types.len())].clone();
@@ -99,11 +163,13 @@ impl ItemManager {
             ),
             item_type: random_type,
             spawn_time: current_time,
-            lifetime: 8.0,         // 8 Sekunden Lebensdauer
-            blink_start_time: 6.0, // Nach 6 Sekunden anfangen zu blinken
+            lifetime: 12.0,        // 12 Sekunden Lebensdauer
+            blink_start_time: 9.0, // Nach 9 Sekunden anfangen zu blinken
             size: 20.0,
             rotation: 0.0,
             pulse_phase: 0.0,
+            attracted_to_player: false,
+            attraction_speed: 0.0,
         };
 
         self.items.push(item);
@@ -124,6 +190,18 @@ impl ItemManager {
             if age > item.blink_start_time {
                 let blink_speed = 8.0;
                 alpha = (0.3 + 0.7 * (age * blink_speed).sin().abs()).clamp(0.0, 1.0);
+            }
+
+            // Magnet-Anziehung Effekt
+            if item.attracted_to_player {
+                alpha *= 0.7 + 0.3 * (current_time * 10.0).sin().abs();
+                // Zusätzlicher Glow-Effekt
+                draw_circle(
+                    item.position.x,
+                    item.position.y,
+                    item.size * 2.0,
+                    Color::new(1.0, 0.5, 0.0, 0.2),
+                );
             }
 
             // Pulsieren für Animation
@@ -157,10 +235,9 @@ impl ItemManager {
                 }
                 ItemType::Overdrive => {
                     self.draw_overdrive(item.position, draw_size, item.rotation, color);
-                }
-                ItemType::BlackHole => {
-                    self.draw_black_hole(item.position, draw_size, item.rotation, color);
-                }
+                } // ItemType::BlackHole => {
+                  //     self.draw_black_hole(item.position, draw_size, item.rotation, color);
+                  // }
             }
         }
     }
@@ -495,62 +572,62 @@ impl ItemManager {
     }
 
     // BlackHole: Spirale mit Sog-Effekt
-    fn draw_black_hole(&self, pos: Vec2, size: f32, rotation: f32, color: Color) {
-        // Äußerer Ereignishorizont
-        draw_circle_lines(pos.x, pos.y, size, 2.0, color);
+    // fn draw_black_hole(&self, pos: Vec2, size: f32, rotation: f32, color: Color) {
+    //     // Äußerer Ereignishorizont
+    //     draw_circle_lines(pos.x, pos.y, size, 2.0, color);
 
-        // Spirale nach innen (Akkretionsscheibe)
-        let mut last_pos = pos;
-        for i in 0..25 {
-            let t = i as f32 / 25.0;
-            let spiral_angle = rotation * 2.0 + t * 8.0 * std::f32::consts::PI;
-            let spiral_radius = size * (1.0 - t * t) * 0.9; // Quadratisch nach innen
-            let current_pos = Vec2::new(
-                pos.x + spiral_angle.cos() * spiral_radius,
-                pos.y + spiral_angle.sin() * spiral_radius,
-            );
+    //     // Spirale nach innen (Akkretionsscheibe)
+    //     let mut last_pos = pos;
+    //     for i in 0..25 {
+    //         let t = i as f32 / 25.0;
+    //         let spiral_angle = rotation * 2.0 + t * 8.0 * std::f32::consts::PI;
+    //         let spiral_radius = size * (1.0 - t * t) * 0.9; // Quadratisch nach innen
+    //         let current_pos = Vec2::new(
+    //             pos.x + spiral_angle.cos() * spiral_radius,
+    //             pos.y + spiral_angle.sin() * spiral_radius,
+    //         );
 
-            if i > 0 {
-                let alpha = color.a * (1.0 - t);
-                let spiral_color = Color::new(
-                    color.r + t * 0.5, // Wird heller zur Mitte
-                    color.g,
-                    color.b + t * 0.7,
-                    alpha,
-                );
-                draw_line(
-                    last_pos.x,
-                    last_pos.y,
-                    current_pos.x,
-                    current_pos.y,
-                    2.0,
-                    spiral_color,
-                );
-            }
-            last_pos = current_pos;
-        }
+    //         if i > 0 {
+    //             let alpha = color.a * (1.0 - t);
+    //             let spiral_color = Color::new(
+    //                 color.r + t * 0.5, // Wird heller zur Mitte
+    //                 color.g,
+    //                 color.b + t * 0.7,
+    //                 alpha,
+    //             );
+    //             draw_line(
+    //                 last_pos.x,
+    //                 last_pos.y,
+    //                 current_pos.x,
+    //                 current_pos.y,
+    //                 2.0,
+    //                 spiral_color,
+    //             );
+    //         }
+    //         last_pos = current_pos;
+    //     }
 
-        // Schwarzes Zentrum
-        draw_circle(pos.x, pos.y, size * 0.3, Color::new(0.0, 0.0, 0.0, 1.0));
+    //     // Schwarzes Zentrum
+    //     draw_circle(pos.x, pos.y, size * 0.3, Color::new(0.0, 0.0, 0.0, 1.0));
 
-        // Sog-Partikel um das Schwarze Loch
-        for i in 0..6 {
-            let particle_angle = rotation * 3.0 + i as f32 * std::f32::consts::PI / 3.0;
-            let particle_distance = size * 1.5 + (rotation * 4.0 + i as f32).sin() * 10.0;
-            let particle_pos = Vec2::new(
-                pos.x + particle_angle.cos() * particle_distance,
-                pos.y + particle_angle.sin() * particle_distance,
-            );
+    //     // Sog-Partikel um das Schwarze Loch
+    //     for i in 0..6 {
+    //         let particle_angle = rotation * 3.0 + i as f32 * std::f32::consts::PI / 3.0;
+    //         let particle_distance = size * 1.5 + (rotation * 4.0 + i as f32).sin() * 10.0;
+    //         let particle_pos = Vec2::new(
+    //             pos.x + particle_angle.cos() * particle_distance,
+    //             pos.y + particle_angle.sin() * particle_distance,
+    //         );
 
-            let particle_alpha = (1.0 - particle_distance / (size * 2.0)).clamp(0.0, 1.0) * color.a;
-            draw_circle(
-                particle_pos.x,
-                particle_pos.y,
-                2.0,
-                Color::new(0.8, 0.4, 0.8, particle_alpha),
-            );
-        }
-    }
+    //         let particle_alpha = (1.0 - particle_distance / (size * 2.0)).clamp(0.0, 1.0) * color.a;
+    //         draw_circle(
+    //             particle_pos.x,
+    //             particle_pos.y,
+    //             2.0,
+    //             Color::new(0.8, 0.4, 0.8, particle_alpha),
+    //         );
+    //     }
+    // }
 
     // Hilfsfunktion für Sterne
     fn draw_star(&self, pos: Vec2, size: f32, rotation: f32, color: Color) {
@@ -594,17 +671,5 @@ impl ItemManager {
             inner_radius,
             Color::new(color.r, color.g, color.b, color.a * 0.3),
         );
-    }
-
-    // Getter für Collision Detection
-    pub fn get_items(&self) -> &Vec<Item> {
-        &self.items
-    }
-
-    // Item entfernen (für Collision)
-    pub fn remove_item(&mut self, index: usize) {
-        if index < self.items.len() {
-            self.items.remove(index);
-        }
     }
 }

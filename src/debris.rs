@@ -9,6 +9,7 @@ pub struct Debris {
     pub x: f32,
     pub y: f32,
     pub size: f32,
+    pub speed_multiplier: f32, // NEU: für Slow-Mo Item
     pub velocity_x: f32,
     pub velocity_y: f32,
     pub hp: f32,
@@ -57,6 +58,7 @@ impl Debris {
             x,
             y,
             size,
+            speed_multiplier: 1.0, // Standard: keine Verlangsamung
             velocity_x,
             velocity_y,
             hp: max_hp,
@@ -75,10 +77,11 @@ impl Debris {
         explosions: &mut Vec<Explosion>,
         floating_texts: &mut Vec<FloatingText>,
         score: &mut i32,
+        points_multiplier: f32,
     ) -> bool {
         // Bewegung
-        self.x += self.velocity_x * get_frame_time();
-        self.y += self.velocity_y * get_frame_time();
+        self.x += self.velocity_x * self.speed_multiplier * get_frame_time();
+        self.y += self.velocity_y * self.speed_multiplier * get_frame_time();
 
         // Rotation
         self.rotation += self.rotation_speed * get_frame_time();
@@ -94,8 +97,9 @@ impl Debris {
 
         // Prüfen, ob zerstört → wenn ja: Explosion + Score + FloatingText
         if self.is_destroyed() {
-            *score += 50;
-            floating_texts.push(FloatingText::new(self.x, self.y, 50));
+            let points = (50.0 * points_multiplier).round() as i32;
+            *score += points;
+            floating_texts.push(FloatingText::new(self.x, self.y, points));
             explosions.push(Explosion::new(
                 self.x,
                 self.y,

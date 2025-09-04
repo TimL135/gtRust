@@ -19,7 +19,7 @@ use debris::Debris;
 use explosion::Explosion;
 use floating_text::FloatingText;
 use fps::FpsCounter;
-use items::ItemManager;
+use items::{ItemManager, ItemType};
 use music_manager::MusicManager;
 use player::Player;
 use savegame::{load_save, update_highscore};
@@ -40,39 +40,101 @@ fn update_entities(
     fps_counter: &mut FpsCounter,
     item_manager: &mut ItemManager,
 ) -> bool {
+    let dt = get_frame_time();
+
     // Sterne updaten
     for s in stars.iter_mut() {
         s.update();
     }
+
+    // Items updaten (mit Spieler für Magnet-Effekt)
+    item_manager.update(dt, player);
+
+    // Item-Pickups prüfen
+    item_manager.check_pickups(player, floating_texts);
+
     // Spieler updaten
     player.update(bullets);
 
     // Schwierigkeit erhöhen über Zeit
-    *difficulty_timer += get_frame_time();
+    *difficulty_timer += dt;
     if *difficulty_timer > 10.0 {
         // Alle 10 Sekunden schwieriger
         *spawn_rate = (*spawn_rate * 0.9).max(0.2f32); // Mindestens alle 0.2 Sekunden
         *difficulty_timer = 0.0;
     }
 
+    // Effekt-basierte Spawn-Rate Modifikation
+    let mut effective_spawn_rate = *spawn_rate;
+
+    // SlowMotion und TimeFreeze beeinflussen Gegner-Spawn
+    if player.has_effect(&ItemType::SlowMotion) {
+        effective_spawn_rate *= 1.5; // Langsameres Spawning
+    }
+    if player.has_effect(&ItemType::TimeFreeze) {
+        effective_spawn_rate *= 3.0; // Sehr langsameres Spawning
+    }
+
     // Neuen Schrott spawnen
-    *spawn_timer += get_frame_time();
-    if *spawn_timer > *spawn_rate {
+    *spawn_timer += dt;
+    if *spawn_timer > effective_spawn_rate {
         debris.push(Debris::new());
         *spawn_timer = 0.0;
     }
 
-    // Schrott updaten
-    debris.retain_mut(|d| !d.update(explosions, floating_texts, score));
+    // Schrott updaten mit Effekt-Modifikatoren
+    let mut debris_speed_multiplier = 1.0;
+    let mut debris_frozen = false;
 
-    debris.retain(|d| {
-        if d.collides_with(player) {
-            player.take_damage(d.damage);
-            false // Element entfernen
-        } else {
-            true // Element behalten
+    if player.has_effect(&ItemType::SlowMotion) {
+        debris_speed_multiplier = 0.3; // 30% Geschwindigkeit
+    }
+    if player.has_effect(&ItemType::TimeFreeze) {
+        debris_frozen = true;
+        debris_speed_multiplier = 0.0; // Komplett eingefroren
+    }
+
+    // BlackHole-Effekt: Debris zum Spieler ziehen
+    // if player.has_effect(&ItemType::BlackHole) {
+    //     let base = screen_width().min(screen_height());
+    //     let black_hole_range = base * 0.20;
+    //     let black_hole_strength = base * 0.30;
+
+    //     for debris_piece in debris.iter_mut() {
+    //         let distance_to_player =
+    //             ((debris_piece.x - player.x).powi(2) + (debris_piece.y - player.y).powi(2)).sqrt();
+    //         if distance_to_player <= black_hole_range && distance_to_player > 0.0 {
+    //             let pull_strength =
+    //                 black_hole_strength * (1.0 - distance_to_player / black_hole_range);
+    //             let direction_x = (player.x - debris_piece.x) / distance_to_player;
+    //             let direction_y = (player.y - debris_piece.y) / distance_to_player;
+
+    //             debris_piece.velocity_x += direction_x * pull_strength * dt;
+    //             debris_piece.velocity_y += direction_y * pull_strength * dt;
+    //         }
+    //     }
+    // }
+
+    // Debris-Geschwindigkeit modifizieren
+    if !debris_frozen {
+        for debris_piece in debris.iter_mut() {
+            debris_piece.speed_multiplier = debris_speed_multiplier;
         }
-    });
+    }
+
+    debris.retain_mut(|d| !d.update(explosions, floating_texts, score, player.points_multiplier));
+
+    // Kollision mit Spieler (außer bei PhaseShift)
+    if !player.can_phase_through {
+        debris.retain(|d| {
+            if d.collides_with(player) {
+                player.take_damage(d.damage);
+                false // Element entfernen
+            } else {
+                true // Element behalten
+            }
+        });
+    }
 
     if player.is_destroyed() {
         return true; // Game over
@@ -103,16 +165,28 @@ fn update_entities(
     bullets.retain(|b| !b.is_off_screen());
 
     // Schrott außerhalb des Bildschirms entfernen und Score erhöhen
+    let base_points = 10;
     debris.retain(|d| {
         if d.is_off_screen() {
-            *score += 10;
+            let points = (base_points as f32 * player.points_multiplier) as i32;
+            *score += points;
+
+            // Floating text für Bonus-Punkte
+            if player.points_multiplier > 1.0 {
+                floating_texts.push(FloatingText::new_with_text(
+                    d.x,
+                    d.y,
+                    format!("+{} ({}x)", points, player.points_multiplier as i32),
+                    Color::new(1.0, 1.0, 0.0, 1.0),
+                ));
+            }
             false
         } else {
             true
         }
     });
+
     fps_counter.update();
-    item_manager.update(get_frame_time());
 
     false // Kein Game over
 }
@@ -134,6 +208,9 @@ fn draw_entities(
         s.draw(i);
     }
 
+    // Items zeichnen
+    item_manager.draw();
+
     // Entitäten zeichnen
     player.draw();
     for b in bullets {
@@ -153,13 +230,23 @@ fn draw_entities(
     let font_size = screen_height() * 0.04; // 4% der Bildschirmhöhe
     let small_font = screen_height() * 0.025; // 2.5% der Bildschirmhöhe
 
-    // Score anzeigen
+    // Score anzeigen (mit Multiplikator)
+    let score_text = if player.points_multiplier > 1.0 {
+        format!("Score: {} ({}x)", score, player.points_multiplier as i32)
+    } else {
+        format!("Score: {}", score)
+    };
+
     draw_text(
-        &format!("Score: {}", score),
+        &score_text,
         screen_width() * 0.02,
         screen_height() * 0.06,
         font_size,
-        WHITE,
+        if player.points_multiplier > 1.0 {
+            YELLOW
+        } else {
+            WHITE
+        },
     );
 
     // Spawn-Rate anzeigen
@@ -171,16 +258,43 @@ fn draw_entities(
         GRAY,
     );
 
+    // Aktive Effekte in der oberen rechten Ecke anzeigen
+    let mut effect_y = screen_height() * 0.06;
+    for effect in &player.active_effects {
+        let effect_name = match effect.effect_type {
+            ItemType::Shield => "SHIELD",
+            ItemType::SpeedBoost => "SPEED",
+            ItemType::SlowMotion => "SLOW-MO",
+            ItemType::Magnet => "MAGNET",
+            ItemType::PhaseShift => "PHASE",
+            ItemType::TimeFreeze => "FREEZE",
+            ItemType::DoublePoints => "2X POINTS",
+            ItemType::Overdrive => "OVERDRIVE",
+            // ItemType::BlackHole => "BLACK HOLE",
+        };
+
+        let effect_text = format!("{}: {:.1}s", effect_name, effect.remaining_time);
+        let text_width = measure_text(&effect_text, None, small_font as u16, 1.0).width;
+
+        draw_text(
+            &effect_text,
+            screen_width() - text_width - screen_width() * 0.02,
+            effect_y,
+            small_font,
+            YELLOW,
+        );
+        effect_y += small_font * 1.2;
+    }
+
     // Steuerung
     draw_text(
-        "WASD oder Pfeiltasten zum Bewegen | ESC = Beenden",
+        "WASD oder Pfeiltasten zum Bewegen | SPACE = Schießen | ESC = Beenden",
         screen_width() * 0.02,
         screen_height() - screen_height() * 0.03,
         small_font,
         GRAY,
     );
     fps_counter.draw();
-    item_manager.draw();
 }
 
 fn window_conf() -> Conf {
@@ -337,6 +451,8 @@ async fn main() {
                 debris.clear();
                 bullets.clear();
                 floating_texts.clear();
+                explosions.clear();
+                item_manager = ItemManager::new();
                 score = 0;
                 game_over = false;
                 spawn_timer = 0.0;
