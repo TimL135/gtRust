@@ -178,22 +178,30 @@ impl Player {
             let bullet_x = self.x + rotated_offset.x;
             let bullet_y = self.y + rotated_offset.y;
 
-            // Create primary bullet
-            bullets.push(Bullet::new(bullet_x, bullet_y, self.rotation));
+            // Create primary bullet with skill modifiers
+            let mut bullet = Bullet::new(bullet_x, bullet_y, self.rotation);
+            bullet.damage *= self.damage_multiplier;
+            bullet.speed *= self.bullet_speed_multiplier;
+            bullet.size *= self.bullet_size_multiplier;
+            bullet.pierce_count = self.bullet_pierce_count;
+            bullets.push(bullet);
 
             // Check for double shot chance
             if rand::gen_range(0.0, 1.0) < self.double_shot_chance {
                 let spread_angle = 0.2; // Small spread for twin cannons
-                bullets.push(Bullet::new(
-                    bullet_x,
-                    bullet_y,
-                    self.rotation - spread_angle,
-                ));
-                bullets.push(Bullet::new(
-                    bullet_x,
-                    bullet_y,
-                    self.rotation + spread_angle,
-                ));
+                let mut bullet1 = Bullet::new(bullet_x, bullet_y, self.rotation - spread_angle);
+                bullet1.damage *= self.damage_multiplier;
+                bullet1.speed *= self.bullet_speed_multiplier;
+                bullet1.size *= self.bullet_size_multiplier;
+                bullet1.pierce_count = self.bullet_pierce_count;
+                bullets.push(bullet1);
+
+                let mut bullet2 = Bullet::new(bullet_x, bullet_y, self.rotation + spread_angle);
+                bullet2.damage *= self.damage_multiplier;
+                bullet2.speed *= self.bullet_speed_multiplier;
+                bullet2.size *= self.bullet_size_multiplier;
+                bullet2.pierce_count = self.bullet_pierce_count;
+                bullets.push(bullet2);
             }
 
             self.shoot_cooldown = self.max_shoot_ccooldown;
@@ -276,23 +284,31 @@ impl Player {
 
         // Aktive Effekte anwenden
         for effect in &self.active_effects {
+            let mut duration = effect.original_duration;
+
+            // Apply skill bonuses to effect duration
             match effect.effect_type {
                 ItemType::Shield => {
+                    duration += self.shield_duration_bonus;
                     self.damage_reduction = 0.5; // 50% weniger Schaden
                 }
                 ItemType::SpeedBoost => {
-                    self.speed_multiplier = 2.0;
+                    self.speed_multiplier = 2.0 * self.speed_boost_effectiveness;
                 }
                 ItemType::SlowMotion => {
+                    duration += self.slow_motion_duration_bonus;
                     // Wird in main.rs für Gegner angewendet
                 }
                 ItemType::Magnet => {
-                    self.magnet_range = (screen_width().min(screen_height())) * 0.15;
+                    self.magnet_range =
+                        (screen_width().min(screen_height())) * 0.15 * self.magnet_range_multiplier;
                 }
                 ItemType::PhaseShift => {
+                    duration += self.phase_duration_bonus;
                     self.can_phase_through = true;
                 }
                 ItemType::TimeFreeze => {
+                    duration += self.time_freeze_duration_bonus;
                     // Wird in main.rs für Gegner angewendet
                 }
                 ItemType::DoublePoints => {
@@ -300,17 +316,19 @@ impl Player {
                 }
                 ItemType::Overdrive => {
                     self.points_multiplier *= 3.0;
-                    self.size = self.base_size * 1.5; // Größere Hitbox
+                    let hitbox_reduction = 1.0 - self.overdrive_hitbox_reduction;
+                    self.size = self.base_size * 1.5 * hitbox_reduction; // Größere Hitbox mit Skill-Reduktion
                     self.max_shoot_ccooldown = self.base_shoot_cooldown * 0.3; // Schneller schießen
-                } // ItemType::BlackHole => {
-                  //    // Wird in main.rs für Gegner angewendet
-                  // }
+                }
             }
+
+            // Apply general item duration multiplier
+            duration *= self.item_effect_duration_multiplier;
         }
     }
 
     pub fn apply_item_effect(&mut self, item_type: ItemType) {
-        let duration = match item_type {
+        let mut duration = match item_type {
             ItemType::Shield => 5.0,
             ItemType::SpeedBoost => 4.0,
             ItemType::SlowMotion => 6.0,
@@ -319,8 +337,19 @@ impl Player {
             ItemType::TimeFreeze => 4.0,
             ItemType::DoublePoints => 10.0,
             ItemType::Overdrive => 5.0,
-            // ItemType::BlackHole => 3.0,
         };
+
+        // Apply skill bonuses to base duration
+        match item_type {
+            ItemType::Shield => duration += self.shield_duration_bonus,
+            ItemType::SlowMotion => duration += self.slow_motion_duration_bonus,
+            ItemType::PhaseShift => duration += self.phase_duration_bonus,
+            ItemType::TimeFreeze => duration += self.time_freeze_duration_bonus,
+            _ => {}
+        }
+
+        // Apply general duration multiplier
+        duration *= self.item_effect_duration_multiplier;
 
         // Entferne gleiche Effekte (kein Stacking)
         self.active_effects
@@ -625,7 +654,6 @@ impl Player {
                 ItemType::TimeFreeze => Color::new(1.0, 1.0, 1.0, 0.8),
                 ItemType::DoublePoints => Color::new(0.0, 1.0, 0.0, 0.8),
                 ItemType::Overdrive => Color::new(1.0, 0.0, 0.0, 0.8),
-                // ItemType::BlackHole => Color::new(0.3, 0.0, 0.3, 0.8),
             };
 
             // Hintergrund

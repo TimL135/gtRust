@@ -91,42 +91,18 @@ fn update_entities(
 
     // Schrott updaten mit Effekt-Modifikatoren
     let mut debris_speed_multiplier = 1.0;
-    let mut debris_frozen = false;
 
     if player.has_effect(&ItemType::SlowMotion) {
         debris_speed_multiplier = 0.3; // 30% Geschwindigkeit
     }
     if player.has_effect(&ItemType::TimeFreeze) {
-        debris_frozen = true;
         debris_speed_multiplier = 0.0; // Komplett eingefroren
     }
 
-    // BlackHole-Effekt: Debris zum Spieler ziehen
-    // if player.has_effect(&ItemType::BlackHole) {
-    //    let base = screen_width().min(screen_height());
-    //    let black_hole_range = base * 0.20;
-    //    let black_hole_strength = base * 0.30;
-
-    //    for debris_piece in debris.iter_mut() {
-    //    let distance_to_player =
-    //    ((debris_piece.x - player.x).powi(2) + (debris_piece.y - player.y).powi(2)).sqrt();
-    //    if distance_to_player <= black_hole_range && distance_to_player > 0.0 {
-    //    let pull_strength =
-    //    black_hole_strength * (1.0 - distance_to_player / black_hole_range);
-    //    let direction_x = (player.x - debris_piece.x) / distance_to_player;
-    //    let direction_y = (player.y - debris_piece.y) / distance_to_player;
-
-    //    debris_piece.velocity_x += direction_x * pull_strength * dt;
-    //    debris_piece.velocity_y += direction_y * pull_strength * dt;
-    //    }
-    //    }
-    // }
-
     // Debris-Geschwindigkeit modifizieren
-    if !debris_frozen {
-        for debris_piece in debris.iter_mut() {
-            debris_piece.speed_multiplier = debris_speed_multiplier;
-        }
+
+    for debris_piece in debris.iter_mut() {
+        debris_piece.speed_multiplier = debris_speed_multiplier;
     }
 
     debris.retain_mut(|d| !d.update(explosions, floating_texts, score, player.points_multiplier));
@@ -149,7 +125,7 @@ fn update_entities(
 
     // Bullets updaten
     for b in bullets.iter_mut() {
-        b.update();
+        b.update(&debris);
     }
 
     // Update der floating texts
@@ -277,7 +253,6 @@ fn draw_entities(
             ItemType::TimeFreeze => "FREEZE",
             ItemType::DoublePoints => "2X POINTS",
             ItemType::Overdrive => "OVERDRIVE",
-            // ItemType::BlackHole => "BLACK HOLE",
         };
 
         let effect_text = format!("{}: {:.1}s", effect_name, effect.remaining_time);
@@ -402,6 +377,7 @@ async fn main() {
                 save.highscore = highscore;
                 update_highscore(highscore);
             }
+
             // Check if player earned skill points
             let skill_points_earned =
                 SkillTreeManager::calculate_skill_points_from_score(highscore);
@@ -411,6 +387,7 @@ async fn main() {
                     skill_tree_manager.earn_skill_point();
                 }
             }
+
             // Game Over Screen
             let title_font = screen_height() * 0.08;
             let text_font = screen_height() * 0.04;
@@ -446,7 +423,21 @@ async fn main() {
                 WHITE,
             );
 
-            let restart_text = "Press R to Restart |Press T for Skilltree | ESC to Quit";
+            // Skill Points anzeigen
+            let skill_points_text = &format!(
+                "Available Skill Points: {}",
+                skill_tree_manager.available_skill_points
+            );
+            let sp_size = measure_text(skill_points_text, None, text_font as u16, 1.0);
+            draw_text(
+                skill_points_text,
+                screen_width() / 2.0 - sp_size.width / 2.0,
+                screen_height() / 2.0 + screen_height() * 0.05,
+                text_font,
+                GREEN,
+            );
+
+            let restart_text = "Press R to Restart | Press T for Skill Tree | ESC to Quit";
             let restart_size = measure_text(restart_text, None, small_font as u16, 1.0);
             draw_text(
                 restart_text,
@@ -462,10 +453,22 @@ async fn main() {
                 settings_ui.have_volume_changes = false;
             }
 
+            // Skill Tree anzeigen/verstecken
+            if is_key_pressed(KeyCode::T) {
+                show_skill_tree = !show_skill_tree;
+            }
+
+            if show_skill_tree {
+                skill_tree_manager.draw_and_handle_input();
+            }
+
             // Neustart
             if is_key_pressed(KeyCode::R) {
                 music_manager.play("gameplay");
                 player = Player::new();
+                // Apply skills to new player
+                skill_tree_manager.apply_to_player(&mut player);
+
                 debris.clear();
                 bullets.clear();
                 floating_texts.clear();
@@ -476,12 +479,7 @@ async fn main() {
                 spawn_timer = 0.0;
                 difficulty_timer = 0.0;
                 spawn_rate = 1.0;
-            }
-            if is_key_pressed(KeyCode::T) {
-                show_skill_tree = !show_skill_tree;
-            }
-            if show_skill_tree {
-                skill_tree_manager.draw(highscore);
+                show_skill_tree = false;
             }
         }
 

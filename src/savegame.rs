@@ -5,7 +5,7 @@ use std::fs;
 pub struct SaveData {
     pub highscore: i32,
     pub settings: GameSettings,
-    // weitere Felder kannst du später leicht ergänzen
+    pub unlocked_skills: Vec<String>, // NEU: Gespeicherte Skills
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -22,6 +22,7 @@ impl Default for SaveData {
                 music_volume: 0.7,
                 sound_volume: 0.8,
             },
+            unlocked_skills: Vec::new(), // NEU: Leere Skill-Liste
         }
     }
 }
@@ -54,4 +55,18 @@ pub fn update_settings(new_settings: GameSettings) {
     let mut data = load_save();
     data.settings = new_settings;
     save_game(&data);
+}
+
+// NEU: Skill freischalten und speichern
+pub fn unlock_skill(skill_id: &str) {
+    let mut data = load_save();
+    if !data.unlocked_skills.contains(&skill_id.to_string()) {
+        data.unlocked_skills.push(skill_id.to_string());
+        save_game(&data);
+    }
+}
+
+// NEU: Alle freigeschalteten Skills laden
+pub fn load_unlocked_skills() -> Vec<String> {
+    load_save().unlocked_skills
 }

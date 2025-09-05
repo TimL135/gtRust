@@ -1,6 +1,6 @@
 use crate::player::Player;
+use crate::savegame::{load_unlocked_skills, unlock_skill}; // NEU: Import
 use macroquad::prelude::*;
-
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -78,6 +78,75 @@ pub enum SkillName {
     MatrixMode,
 }
 
+// NEU: Hilfsfunktion um SkillName zu String zu konvertieren
+impl SkillName {
+    pub fn to_string(&self) -> String {
+        format!("{:?}", self)
+    }
+
+    pub fn from_string(s: &str) -> Option<SkillName> {
+        match s {
+            "RapidFire" => Some(SkillName::RapidFire),
+            "SharpenedProjectiles" => Some(SkillName::SharpenedProjectiles),
+            "PowerCapacitors" => Some(SkillName::PowerCapacitors),
+            "PiercingShots" => Some(SkillName::PiercingShots),
+            "FocusedAim" => Some(SkillName::FocusedAim),
+            "ExpandedAmmo" => Some(SkillName::ExpandedAmmo),
+            "ExplosivePayload" => Some(SkillName::ExplosivePayload),
+            "TwinCannons" => Some(SkillName::TwinCannons),
+            "HighVelocityRounds" => Some(SkillName::HighVelocityRounds),
+            "TargetingSystem" => Some(SkillName::TargetingSystem),
+            "CriticalStrikes" => Some(SkillName::CriticalStrikes),
+            "OverpressureCoolant" => Some(SkillName::OverpressureCoolant),
+            "BulletStorm" => Some(SkillName::BulletStorm),
+            "PlasmaCannon" => Some(SkillName::PlasmaCannon),
+            "ReinforcedHull" => Some(SkillName::ReinforcedHull),
+            "EvasiveManeuvers" => Some(SkillName::EvasiveManeuvers),
+            "ImpactFrame" => Some(SkillName::ImpactFrame),
+            "ImpactDampeners" => Some(SkillName::ImpactDampeners),
+            "ShieldCore" => Some(SkillName::ShieldCore),
+            "EnergyEfficiency" => Some(SkillName::EnergyEfficiency),
+            "ReactiveArmor" => Some(SkillName::ReactiveArmor),
+            "EmergencyRepair" => Some(SkillName::EmergencyRepair),
+            "AdaptivePlating" => Some(SkillName::AdaptivePlating),
+            "PhaseTraining" => Some(SkillName::PhaseTraining),
+            "FortifiedField" => Some(SkillName::FortifiedField),
+            "KineticShielding" => Some(SkillName::KineticShielding),
+            "GuardianAngel" => Some(SkillName::GuardianAngel),
+            "FortressMode" => Some(SkillName::FortressMode),
+            "MagneticField" => Some(SkillName::MagneticField),
+            "LuckyFind" => Some(SkillName::LuckyFind),
+            "QuickGrab" => Some(SkillName::QuickGrab),
+            "GoldenInsight" => Some(SkillName::GoldenInsight),
+            "TreasureHoarder" => Some(SkillName::TreasureHoarder),
+            "PointBooster" => Some(SkillName::PointBooster),
+            "LongerTreasures" => Some(SkillName::LongerTreasures),
+            "ComboHunter" => Some(SkillName::ComboHunter),
+            "TreasureInstinct" => Some(SkillName::TreasureInstinct),
+            "TreasureRadar" => Some(SkillName::TreasureRadar),
+            "LuckyJackpot" => Some(SkillName::LuckyJackpot),
+            "ExtraStorage" => Some(SkillName::ExtraStorage),
+            "JackpotParty" => Some(SkillName::JackpotParty),
+            "GoldenTouch" => Some(SkillName::GoldenTouch),
+            "EngineBoost" => Some(SkillName::EngineBoost),
+            "ChronoTraining" => Some(SkillName::ChronoTraining),
+            "OptimizedBattery" => Some(SkillName::OptimizedBattery),
+            "EmpRounds" => Some(SkillName::EmpRounds),
+            "TemporalBuffer" => Some(SkillName::TemporalBuffer),
+            "OverclockedFire" => Some(SkillName::OverclockedFire),
+            "MiniBlackHole" => Some(SkillName::MiniBlackHole),
+            "TimeFreezeMastery" => Some(SkillName::TimeFreezeMastery),
+            "PulseDisruptor" => Some(SkillName::PulseDisruptor),
+            "OverdriveCalibration" => Some(SkillName::OverdriveCalibration),
+            "TemporalSurge" => Some(SkillName::TemporalSurge),
+            "EnergyOverflow" => Some(SkillName::EnergyOverflow),
+            "Singularity" => Some(SkillName::Singularity),
+            "MatrixMode" => Some(SkillName::MatrixMode),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Skill {
     pub name: SkillName,
@@ -102,6 +171,39 @@ impl SkillTree {
             allocated_points: HashMap::new(),
             total_points_spent: 0,
             selected_ultimate: None,
+        }
+    }
+
+    // NEU: Skills aus Savegame laden
+    pub fn load_from_save(&mut self) {
+        let unlocked_skills = load_unlocked_skills();
+
+        for skill_string in unlocked_skills {
+            if let Some(skill_name) =
+                SkillName::from_string(&skill_string.split(':').next().unwrap())
+            {
+                // Prüfen ob der Skill zu diesem Tree gehört
+                let skills = Self::get_skills_for_tree(&self.tree_type);
+                if skills.iter().any(|s| s.name == skill_name) {
+                    // Skill-Punkte aus dem String extrahieren (Format: "SkillName:Points")
+                    let parts: Vec<&str> = skill_string.split(':').collect();
+                    let points = if parts.len() > 1 {
+                        parts[1].parse::<u8>().unwrap_or(1)
+                    } else {
+                        1
+                    };
+                    self.allocated_points.insert(skill_name.clone(), points);
+                    self.total_points_spent += 1;
+
+                    // Ultimates markieren
+                    let skill = skills.iter().find(|s| s.name == skill_name);
+                    if let Some(skill) = skill {
+                        if skill.tier == 5 {
+                            self.selected_ultimate = Some(skill_name);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -567,7 +669,8 @@ impl SkillTree {
 
     pub fn allocate_point(&mut self, skill_name: SkillName) -> bool {
         if self.can_allocate_point(&skill_name) {
-            let current_points = self.allocated_points.get(&skill_name).unwrap_or(&0);
+            let current_points = *self.allocated_points.get(&skill_name).unwrap_or(&0);
+
             self.allocated_points
                 .insert(skill_name.clone(), current_points + 1);
             self.total_points_spent += 1;
@@ -576,9 +679,13 @@ impl SkillTree {
             let skills = Self::get_skills_for_tree(&self.tree_type);
             if let Some(skill) = skills.iter().find(|s| s.name == skill_name) {
                 if skill.tier == 5 {
-                    self.selected_ultimate = Some(skill_name);
+                    self.selected_ultimate = Some(skill_name.clone());
                 }
             }
+
+            // NEU: Skill im Savegame speichern
+            let skill_key = format!("{}:{}", skill_name.to_string(), current_points + 1);
+            unlock_skill(&skill_key);
 
             true
         } else {
@@ -586,36 +693,7 @@ impl SkillTree {
         }
     }
 
-    pub fn get_tree_bonus(&self) -> TreeBonus {
-        match self.tree_type {
-            SkillTreeType::Combat => TreeBonus {
-                bullet_speed_multiplier: 1.1,
-                damage_multiplier: 1.05,
-                ..Default::default()
-            },
-            SkillTreeType::Survival => TreeBonus {
-                max_hp_bonus: 1.0,
-                speed_multiplier: 1.05,
-                ..Default::default()
-            },
-            SkillTreeType::Treasure => TreeBonus {
-                points_multiplier: 1.1,
-                item_spawn_distance_multiplier: 0.9,
-                ..Default::default()
-            },
-            SkillTreeType::Tech => TreeBonus {
-                item_duration_multiplier: 1.05,
-                speed_multiplier: 1.05,
-                ..Default::default()
-            },
-        }
-    }
-
     pub fn apply_skills_to_player(&self, player: &mut Player) {
-        // Apply tree bonus first
-        let tree_bonus = self.get_tree_bonus();
-        tree_bonus.apply_to_player(player);
-
         // Apply individual skills
         for (skill_name, points) in &self.allocated_points {
             self.apply_skill_effect(skill_name, *points, player);
@@ -791,41 +869,6 @@ impl SkillTree {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct TreeBonus {
-    pub bullet_speed_multiplier: f32,
-    pub damage_multiplier: f32,
-    pub max_hp_bonus: f32,
-    pub speed_multiplier: f32,
-    pub points_multiplier: f32,
-    pub item_spawn_distance_multiplier: f32,
-    pub item_duration_multiplier: f32,
-}
-
-impl TreeBonus {
-    fn apply_to_player(&self, player: &mut Player) {
-        if self.bullet_speed_multiplier != 0.0 {
-            player.bullet_speed_multiplier *= self.bullet_speed_multiplier;
-        }
-        if self.damage_multiplier != 0.0 {
-            player.damage_multiplier *= self.damage_multiplier;
-        }
-        if self.max_hp_bonus != 0.0 {
-            player.max_hp += self.max_hp_bonus;
-            player.hp += self.max_hp_bonus;
-        }
-        if self.speed_multiplier != 0.0 {
-            player.speed_multiplier *= self.speed_multiplier;
-        }
-        if self.points_multiplier != 0.0 {
-            player.points_multiplier *= self.points_multiplier;
-        }
-        if self.item_duration_multiplier != 0.0 {
-            player.item_effect_duration_multiplier *= self.item_duration_multiplier;
-        }
-    }
-}
-
 pub struct SkillTreeManager {
     pub skill_trees: HashMap<SkillTreeType, SkillTree>,
     pub available_skill_points: u8,
@@ -847,11 +890,28 @@ impl SkillTreeManager {
         );
         skill_trees.insert(SkillTreeType::Tech, SkillTree::new(SkillTreeType::Tech));
 
-        Self {
+        let mut manager = Self {
             skill_trees,
             available_skill_points: 0,
             total_skill_points_earned: 0,
             active_tab: SkillTreeType::Combat,
+        };
+
+        // NEU: Skills aus Savegame laden
+        manager.load_skills_from_save();
+        let mut skill_trees_used_points = 0;
+        for tree in &manager.skill_trees {
+            skill_trees_used_points += tree.1.total_points_spent;
+        }
+        manager.total_skill_points_earned += skill_trees_used_points;
+
+        manager
+    }
+
+    // NEU: Skills aus Savegame laden
+    pub fn load_skills_from_save(&mut self) {
+        for tree in self.skill_trees.values_mut() {
+            tree.load_from_save();
         }
     }
 
@@ -882,7 +942,7 @@ impl SkillTreeManager {
         (score / 1000) as u8 // 1 skill point per 1000 score
     }
 
-    pub fn draw(&mut self, score: i32) {
+    pub fn draw_and_handle_input(&mut self) {
         // Hintergrund (halbtransparent)
         draw_rectangle(
             0.0,
@@ -908,8 +968,7 @@ impl SkillTreeManager {
         );
 
         // Verfügbare Skill Points anzeigen
-        let available_points = score / 1000; // 1 Punkt pro 1000 Score
-        let points_text = format!("Available Skill Points: {}", available_points);
+        let points_text = format!("Available Skill Points: {}", self.available_skill_points);
         let points_size = measure_text(&points_text, None, text_font as u16, 1.0);
         draw_text(
             &points_text,
@@ -983,7 +1042,7 @@ impl SkillTreeManager {
         }
     }
 
-    fn draw_active_tree_skills(&self) {
+    fn draw_active_tree_skills(&mut self) {
         let start_y = screen_height() * 0.28;
         let available_height = screen_height() * 0.6; // Verfügbare Höhe für Skills
         let skills = SkillTree::get_skills_for_tree(&self.active_tab);
@@ -1010,6 +1069,8 @@ impl SkillTreeManager {
         let skill_height = skill_area_height * 0.8;
 
         let mut current_y = start_y;
+        let mut skill_to_spend: Option<SkillName> = None;
+
         for tier in 1..=5 {
             if let Some(tier_skills) = tiers.get(&tier) {
                 // Tier-Titel
@@ -1042,7 +1103,8 @@ impl SkillTreeManager {
 
                     let allocated_points =
                         active_tree.allocated_points.get(&skill.name).unwrap_or(&0);
-                    let can_allocate = active_tree.can_allocate_point(&skill.name);
+                    let can_allocate = active_tree.can_allocate_point(&skill.name)
+                        && self.available_skill_points > 0;
 
                     // Skill-Box
                     let skill_color = if *allocated_points > 0 {
@@ -1101,14 +1163,18 @@ impl SkillTreeManager {
                             && mouse_pos.1 >= skill_y
                             && mouse_pos.1 <= skill_y + skill_height
                         {
-                            // Hier würde normalerweise spend_skill_point aufgerufen werden
-                            // Das muss von außen gemacht werden, da wir &self haben
+                            skill_to_spend = Some(skill.name.clone());
                         }
                     }
                 }
 
                 current_y += skill_area_height;
             }
+        }
+
+        // Nach allen Iterationen: Skill-Punkt ausgeben
+        if let Some(skill_name) = skill_to_spend {
+            self.spend_skill_point(skill_name);
         }
     }
 }
