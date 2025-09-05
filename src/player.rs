@@ -30,6 +30,54 @@ pub struct Player {
     pub can_phase_through: bool,
     pub active_effects: Vec<ActiveEffect>,
     pub magnet_range: f32,
+
+    // Skill Tree related fields
+    pub damage_multiplier: f32,
+    pub reload_speed_multiplier: f32,
+    pub bullet_pierce_count: u8,
+    pub bullet_speed_multiplier: f32,
+    pub bullet_size_multiplier: f32,
+    pub bullet_explosion_damage: f32,
+    pub double_shot_chance: f32,
+    pub armor_penetration: f32,
+    pub bullet_homing_strength: f32,
+    pub crit_chance: f32,
+    pub knockback_resistance: f32,
+    pub debris_damage_reduction: f32,
+    pub shield_duration_bonus: f32,
+    pub item_cooldown_reduction: f32,
+    pub immunity_interval: f32,
+    pub health_regen_rate: f32,
+    pub adaptive_armor_rate: f32,
+    pub phase_duration_bonus: f32,
+    pub kinetic_shield_strength: f32,
+    pub magnet_range_multiplier: f32,
+    pub item_spawn_rate_multiplier: f32,
+    pub item_attraction_speed_multiplier: f32,
+    pub item_lifetime_bonus: f32,
+    pub item_effect_duration_multiplier: f32,
+    pub combo_bonus_multiplier: f32,
+    pub death_drop_chance: f32,
+    pub close_spawn_chance: f32,
+    pub super_item_chance: f32,
+    pub max_active_items: usize,
+    pub speed_boost_effectiveness: f32,
+    pub slow_motion_duration_bonus: f32,
+    pub emp_chance: f32,
+    pub black_hole_interval: f32,
+    pub time_freeze_duration_bonus: f32,
+    pub pulse_disruptor_strength: f32,
+    pub overdrive_hitbox_reduction: f32,
+    pub temporal_surge_strength: f32,
+    pub energy_overflow_bonus: f32,
+
+    // Timers and counters for skill effects
+    pub last_immunity_time: f32,
+    pub last_regen_time: f32,
+    pub adaptive_armor_timer: f32,
+    pub adaptive_armor_stacks: u8,
+    pub last_black_hole_time: f32,
+    pub pickup_count: u32,
 }
 
 impl Player {
@@ -58,12 +106,63 @@ impl Player {
             can_phase_through: false,
             active_effects: Vec::new(),
             magnet_range: 0.0,
+
+            // Initialize skill tree fields with default values
+            damage_multiplier: 1.0,
+            reload_speed_multiplier: 1.0,
+            bullet_pierce_count: 0,
+            bullet_speed_multiplier: 1.0,
+            bullet_size_multiplier: 1.0,
+            bullet_explosion_damage: 0.0,
+            double_shot_chance: 0.0,
+            armor_penetration: 0.0,
+            bullet_homing_strength: 0.0,
+            crit_chance: 0.0,
+            knockback_resistance: 0.0,
+            debris_damage_reduction: 0.0,
+            shield_duration_bonus: 0.0,
+            item_cooldown_reduction: 0.0,
+            immunity_interval: 0.0,
+            health_regen_rate: 0.0,
+            adaptive_armor_rate: 0.0,
+            phase_duration_bonus: 0.0,
+            kinetic_shield_strength: 0.0,
+            magnet_range_multiplier: 1.0,
+            item_spawn_rate_multiplier: 1.0,
+            item_attraction_speed_multiplier: 1.0,
+            item_lifetime_bonus: 0.0,
+            item_effect_duration_multiplier: 1.0,
+            combo_bonus_multiplier: 0.0,
+            death_drop_chance: 0.0,
+            close_spawn_chance: 0.0,
+            super_item_chance: 0.0,
+            max_active_items: 1,
+            speed_boost_effectiveness: 1.0,
+            slow_motion_duration_bonus: 0.0,
+            emp_chance: 0.0,
+            black_hole_interval: 0.0,
+            time_freeze_duration_bonus: 0.0,
+            pulse_disruptor_strength: 0.0,
+            overdrive_hitbox_reduction: 0.0,
+            temporal_surge_strength: 0.0,
+            energy_overflow_bonus: 0.0,
+
+            // Initialize timers
+            last_immunity_time: 0.0,
+            last_regen_time: 0.0,
+            adaptive_armor_timer: 0.0,
+            adaptive_armor_stacks: 0,
+            last_black_hole_time: 0.0,
+            pickup_count: 0,
         }
     }
 
     pub fn update(&mut self, bullets: &mut Vec<Bullet>) {
         // Aktive Effekte updaten
         self.update_effects();
+
+        // Update skill-based timers and effects
+        self.update_skill_effects();
 
         // Schießen mit Space (mit Rotation)
         if is_key_down(KeyCode::Space) && self.shoot_cooldown <= 0.0 {
@@ -79,7 +178,24 @@ impl Player {
             let bullet_x = self.x + rotated_offset.x;
             let bullet_y = self.y + rotated_offset.y;
 
+            // Create primary bullet
             bullets.push(Bullet::new(bullet_x, bullet_y, self.rotation));
+
+            // Check for double shot chance
+            if rand::gen_range(0.0, 1.0) < self.double_shot_chance {
+                let spread_angle = 0.2; // Small spread for twin cannons
+                bullets.push(Bullet::new(
+                    bullet_x,
+                    bullet_y,
+                    self.rotation - spread_angle,
+                ));
+                bullets.push(Bullet::new(
+                    bullet_x,
+                    bullet_y,
+                    self.rotation + spread_angle,
+                ));
+            }
+
             self.shoot_cooldown = self.max_shoot_ccooldown;
         }
 
@@ -187,7 +303,7 @@ impl Player {
                     self.size = self.base_size * 1.5; // Größere Hitbox
                     self.max_shoot_ccooldown = self.base_shoot_cooldown * 0.3; // Schneller schießen
                 } // ItemType::BlackHole => {
-                  //     // Wird in main.rs für Gegner angewendet
+                  //    // Wird in main.rs für Gegner angewendet
                   // }
             }
         }
@@ -543,7 +659,37 @@ impl Player {
     }
 
     pub fn take_damage(&mut self, damage: f32) -> bool {
-        self.hp -= damage * (1.0 - self.damage_reduction);
+        let current_time = get_time() as f32;
+
+        // Check reactive armor immunity
+        if self.immunity_interval > 0.0
+            && current_time - self.last_immunity_time < self.immunity_interval
+        {
+            return false; // Immune to damage
+        }
+
+        // Apply damage with all reductions
+        let mut final_damage = damage;
+        final_damage *= 1.0 - self.damage_reduction; // Item-based reduction
+        final_damage *= 1.0 - self.debris_damage_reduction; // Skill-based debris reduction
+        final_damage *= 1.0 - (self.adaptive_armor_stacks as f32 * self.adaptive_armor_rate); // Adaptive plating
+
+        self.hp -= final_damage;
+
+        // Reset adaptive armor stacks when taking damage
+        self.adaptive_armor_stacks = 0;
+        self.adaptive_armor_timer = 0.0;
+
+        // Update immunity timer
+        if self.immunity_interval > 0.0 {
+            self.last_immunity_time = current_time;
+        }
+
+        // Trigger kinetic shielding if available
+        if self.kinetic_shield_strength > 0.0 {
+            // This would trigger a temporary speed boost - handled in update_skill_effects
+        }
+
         self.hp <= 0.0
     }
 
@@ -557,5 +703,53 @@ impl Player {
 
     pub fn get_pickup_radius(&self) -> f32 {
         self.size * 1.5
+    }
+
+    fn update_skill_effects(&mut self) {
+        let dt = get_frame_time();
+        let current_time = get_time() as f32;
+
+        // Health regeneration
+        if self.health_regen_rate > 0.0 && current_time - self.last_regen_time >= 1.0 {
+            self.hp = (self.hp + self.health_regen_rate).min(self.max_hp);
+            self.last_regen_time = current_time;
+        }
+
+        // Adaptive armor buildup (when not taking damage)
+        self.adaptive_armor_timer += dt;
+        if self.adaptive_armor_timer >= 3.0 && self.adaptive_armor_rate > 0.0 {
+            self.adaptive_armor_stacks = (self.adaptive_armor_stacks + 1).min(5); // Max 5 stacks
+            self.adaptive_armor_timer = 0.0;
+        }
+
+        // Mini black hole effect
+        if self.black_hole_interval > 0.0
+            && current_time - self.last_black_hole_time >= self.black_hole_interval
+        {
+            // This would trigger a gravitational pull effect - to be implemented in main.rs
+            self.last_black_hole_time = current_time;
+        }
+    }
+
+    pub fn on_item_pickup(&mut self) {
+        self.pickup_count += 1;
+
+        // Golden Touch effect (every 10th pickup)
+        if self.pickup_count % 10 == 0 {
+            // This would add bonus points - to be handled in main.rs
+        }
+
+        // Energy overflow effect
+        if self.energy_overflow_bonus > 0.0 {
+            // Extend all active effects
+            for effect in &mut self.active_effects {
+                effect.remaining_time += effect.original_duration * self.energy_overflow_bonus;
+            }
+        }
+
+        // Temporal surge effect
+        if self.temporal_surge_strength > 0.0 {
+            // This would slow down the game temporarily - to be handled in main.rs
+        }
     }
 }

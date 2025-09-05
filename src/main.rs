@@ -12,6 +12,7 @@ mod music_manager;
 mod player;
 mod savegame;
 mod settings;
+mod skill_tree;
 mod star;
 
 use bullet::Bullet;
@@ -24,6 +25,7 @@ use music_manager::MusicManager;
 use player::Player;
 use savegame::{load_save, update_highscore};
 use settings::SettingsUI;
+use skill_tree::SkillTreeManager;
 use star::Star;
 
 fn update_entities(
@@ -51,7 +53,12 @@ fn update_entities(
     item_manager.update(dt, player);
 
     // Item-Pickups prüfen
-    item_manager.check_pickups(player, floating_texts);
+    let picked_up_items = item_manager.check_pickups(player, floating_texts);
+
+    // Handle item pickups for skill effects
+    if !picked_up_items.is_empty() {
+        player.on_item_pickup();
+    }
 
     // Spieler updaten
     player.update(bullets);
@@ -96,23 +103,23 @@ fn update_entities(
 
     // BlackHole-Effekt: Debris zum Spieler ziehen
     // if player.has_effect(&ItemType::BlackHole) {
-    //     let base = screen_width().min(screen_height());
-    //     let black_hole_range = base * 0.20;
-    //     let black_hole_strength = base * 0.30;
+    //    let base = screen_width().min(screen_height());
+    //    let black_hole_range = base * 0.20;
+    //    let black_hole_strength = base * 0.30;
 
-    //     for debris_piece in debris.iter_mut() {
-    //         let distance_to_player =
-    //             ((debris_piece.x - player.x).powi(2) + (debris_piece.y - player.y).powi(2)).sqrt();
-    //         if distance_to_player <= black_hole_range && distance_to_player > 0.0 {
-    //             let pull_strength =
-    //                 black_hole_strength * (1.0 - distance_to_player / black_hole_range);
-    //             let direction_x = (player.x - debris_piece.x) / distance_to_player;
-    //             let direction_y = (player.y - debris_piece.y) / distance_to_player;
+    //    for debris_piece in debris.iter_mut() {
+    //    let distance_to_player =
+    //    ((debris_piece.x - player.x).powi(2) + (debris_piece.y - player.y).powi(2)).sqrt();
+    //    if distance_to_player <= black_hole_range && distance_to_player > 0.0 {
+    //    let pull_strength =
+    //    black_hole_strength * (1.0 - distance_to_player / black_hole_range);
+    //    let direction_x = (player.x - debris_piece.x) / distance_to_player;
+    //    let direction_y = (player.y - debris_piece.y) / distance_to_player;
 
-    //             debris_piece.velocity_x += direction_x * pull_strength * dt;
-    //             debris_piece.velocity_y += direction_y * pull_strength * dt;
-    //         }
-    //     }
+    //    debris_piece.velocity_x += direction_x * pull_strength * dt;
+    //    debris_piece.velocity_y += direction_y * pull_strength * dt;
+    //    }
+    //    }
     // }
 
     // Debris-Geschwindigkeit modifizieren
@@ -332,6 +339,8 @@ async fn main() {
     let mut fps_counter = FpsCounter::new();
     let mut stars: Vec<Star> = (0..100).map(|_| Star::new()).collect();
     let mut item_manager = ItemManager::new();
+    let mut skill_tree_manager = SkillTreeManager::new();
+    let mut show_skill_tree = false;
 
     music_manager.play("gameplay");
 
@@ -393,6 +402,15 @@ async fn main() {
                 save.highscore = highscore;
                 update_highscore(highscore);
             }
+            // Check if player earned skill points
+            let skill_points_earned =
+                SkillTreeManager::calculate_skill_points_from_score(highscore);
+            if skill_points_earned > skill_tree_manager.total_skill_points_earned {
+                let new_points = skill_points_earned - skill_tree_manager.total_skill_points_earned;
+                for _ in 0..new_points {
+                    skill_tree_manager.earn_skill_point();
+                }
+            }
             // Game Over Screen
             let title_font = screen_height() * 0.08;
             let text_font = screen_height() * 0.04;
@@ -428,7 +446,7 @@ async fn main() {
                 WHITE,
             );
 
-            let restart_text = "Press R to Restart | ESC to Quit";
+            let restart_text = "Press R to Restart |Press T for Skilltree | ESC to Quit";
             let restart_size = measure_text(restart_text, None, small_font as u16, 1.0);
             draw_text(
                 restart_text,
@@ -458,6 +476,12 @@ async fn main() {
                 spawn_timer = 0.0;
                 difficulty_timer = 0.0;
                 spawn_rate = 1.0;
+            }
+            if is_key_pressed(KeyCode::T) {
+                show_skill_tree = !show_skill_tree;
+            }
+            if show_skill_tree {
+                skill_tree_manager.draw(highscore);
             }
         }
 
